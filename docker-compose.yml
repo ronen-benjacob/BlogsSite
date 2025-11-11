@@ -1,0 +1,63 @@
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: flask_blog_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: blog_db
+      POSTGRES_USER: blog_user
+      POSTGRES_PASSWORD: blog_password_123
+    volumes:
+      # Persist database data on your machine
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - blog_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blog_user -d blog_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Flask Application
+  web:
+    env_file:
+      - .env
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flask_blog_app
+    restart: unless-stopped
+    ports:
+      - "5003:5003"
+    environment:
+      # Flask Configuration
+      FLASK_KEY: "your-secret-key-change-this-in-production"
+      FLASK_ENV: development
+
+      # Database Connection String
+      # Format: postgresql://username:password@hostname:port/database
+      SQLALCHEMY_DATABASE_URI: "postgresql://blog_user:blog_password_123@db:5432/blog_db"
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    networks:
+      - blog_network
+
+    volumes:
+      # Mount your code for live reloading during development
+      - .:/app
+      # Don't mount these directories (use container versions)
+      - /app/__pycache__
+      - /app/.venv
+
+networks:
+  blog_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
