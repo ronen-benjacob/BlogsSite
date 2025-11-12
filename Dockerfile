@@ -16,6 +16,9 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install requests for healthcheck
+RUN pip install --no-cache-dir requests
+
 # Copy the entire application
 COPY . .
 

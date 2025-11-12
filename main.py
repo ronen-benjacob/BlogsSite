@@ -11,12 +11,14 @@ from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from forms import Add_Post_Form, Register_Form, Login_Form, Comment_Form
 import os
+from dotenv import load_dotenv
 
 '''
 On Windows type:
 python -m pip install -r requirements.txt
 '''
 
+load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('FLASK_KEY')
 # '8BYkEfBA6O6donzWlSihBXox7C0sKR6b'
