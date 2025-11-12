@@ -1,7 +1,14 @@
 import pytest
 import os
 import sys
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash
+
+# Ensure predictable database configuration before importing the app
+USE_POSTGRES = os.environ.get('TEST_WITH_POSTGRES', 'false').lower() == 'true'
+if not USE_POSTGRES:
+    # Force the application to start with an in-memory SQLite database when testing locally
+    os.environ['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
 
 # Add parent directory to path so we can import main
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -9,7 +16,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from main import app as flask_app, db, User, BlogPost, Comment
 
 # Choose database based on environment variable
-USE_POSTGRES = os.environ.get('TEST_WITH_POSTGRES', 'false').lower() == 'true'
 
 @pytest.fixture(scope='function')
 def app():
@@ -64,21 +70,39 @@ def runner(app):
 
 
 @pytest.fixture(scope='function')
-def test_user(app):
-    """Create a test user in the database."""
+def test_user(app, admin_user):
+    """Create a test user in the database (ensures admin_user is created first)."""
     with app.app_context():
-        user = User(
-            email='testuser@example.com',
-            password=generate_password_hash('password123', method='scrypt', salt_length=16),
-            name='Test User'
-        )
-        db.session.add(user)
-        db.session.commit()
-        
-        # Refresh to get the ID
+        user = User.query.filter_by(email='testuser@example.com').first()
+        if not user:
+            user = User(
+                email='testuser@example.com',
+                password=generate_password_hash('password123', method='scrypt', salt_length=16),
+                name='Test User'
+            )
+            db.session.add(user)
+            try:
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
+                user = User.query.filter_by(email='testuser@example.com').first()
+        if user is None:
+            raise RuntimeError("Failed to create or retrieve test user.")
+        # Ensure test_user is not id=1 (admin)
+        if user.id == 1:
+            # If somehow test_user got id=1, delete and recreate
+            db.session.delete(user)
+            db.session.commit()
+            user = User(
+                email='testuser@example.com',
+                password=generate_password_hash('password123', method='scrypt', salt_length=16),
+                name='Test User'
+            )
+            db.session.add(user)
+            db.session.commit()
         db.session.refresh(user)
         user_id = user.id
-        
+
     return {
         'id': user_id,
         'email': 'testuser@example.com',
@@ -91,17 +115,26 @@ def test_user(app):
 def admin_user(app):
     """Create an admin user (ID=1) in the database."""
     with app.app_context():
-        admin = User(
-            id=1,
-            email='admin@example.com',
-            password=generate_password_hash('adminpass123', method='scrypt', salt_length=16),
-            name='Admin User'
-        )
-        db.session.add(admin)
-        db.session.commit()
-        
+        admin = User.query.filter_by(id=1).first()
+        if not admin:
+            admin = User(
+                id=1,
+                email='admin@example.com',
+                password=generate_password_hash('adminpass123', method='scrypt', salt_length=16),
+                name='Admin User'
+            )
+            db.session.add(admin)
+            try:
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
+                admin = User.query.filter_by(id=1).first()
+        if admin is None:
+            raise RuntimeError("Failed to create or retrieve admin user.")
+        db.session.refresh(admin)
+
     return {
-        'id': 1,
+        'id': admin.id,
         'email': 'admin@example.com',
         'password': 'adminpass123',
         'name': 'Admin User'

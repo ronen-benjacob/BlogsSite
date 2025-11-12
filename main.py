@@ -7,6 +7,7 @@ from flask_login import UserMixin, login_user, LoginManager, current_user, logou
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy import Integer, String, Text, ForeignKey
+from sqlalchemy.exc import IntegrityError
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from forms import Add_Post_Form, Register_Form, Login_Form, Comment_Form
@@ -30,7 +31,7 @@ login_manager.init_app(app)
 # CREATE DATABASE
 class Base(DeclarativeBase):
     pass
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI') or 'sqlite:///blog.db'
 db = SQLAlchemy(model_class=Base)
 db.init_app(app)
 
@@ -88,8 +89,10 @@ class Comment(UserMixin, db.Model):
     def to_dict(self):                        
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}
 
-with app.app_context():
-    db.create_all()
+def init_database() -> None:
+    """Ensure all database tables exist."""
+    with app.app_context():
+        db.create_all()
 
 # Decorators
 def admin_only(func):
@@ -218,7 +221,9 @@ def show_post(post_id):
             flash("You need to log in to the site in order to comment on blog posts.")
             return redirect(url_for('login'))
     
-    requested_post = db.session.get_one(BlogPost, post_id)    
+    requested_post = db.session.get(BlogPost, post_id)
+    if requested_post is None:
+        abort(404)
 
     return render_template("post.html", post=requested_post, form=comment_form)
 
@@ -235,7 +240,15 @@ def new_post():
         new_blog_post.body = add_post_form.blog_content.data
         new_blog_post.date = date.today().strftime("%B %d, %Y")
         db.session.add(new_blog_post)
-        db.session.commit()
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            flash("A blog post with that title already exists. Please choose a different title.")
+            return render_template(template_name_or_list='make-post.html', form=add_post_form), 400
+        except Exception:
+            db.session.rollback()
+            raise
         return redirect(location=url_for('get_all_posts'))
     return render_template(template_name_or_list='make-post.html', form=add_post_form)
 
@@ -262,8 +275,10 @@ def edit_post(post_id):
 
 @app.route('/delete-post/<int:post_id>')
 @admin_only
-def delete_post(post_id):    
-    deleted_post = db.session.get_one(BlogPost, post_id)  
+def delete_post(post_id):
+    deleted_post = db.session.get(BlogPost, post_id)
+    if deleted_post is None:
+        abort(404)
     db.session.delete(deleted_post)
     db.session.commit()
     return redirect(location=url_for('get_all_posts'))
@@ -278,4 +293,5 @@ def contact():
 
 
 if __name__ == "__main__":
+    init_database()
     app.run(debug=False, port=5003)
