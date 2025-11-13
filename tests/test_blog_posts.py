@@ -216,3 +216,4 @@ class TestBlogPostValidation:
         # Should either show error or handle gracefully
         # Depending on your implementation, adjust this assertion
         assert response.status_code in [200, 400]
+        
