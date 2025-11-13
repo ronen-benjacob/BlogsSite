@@ -12,6 +12,7 @@ from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from forms import Add_Post_Form, Register_Form, Login_Form, Comment_Form
 import os
+import sys
 from dotenv import load_dotenv
 
 '''
@@ -31,7 +32,23 @@ login_manager.init_app(app)
 # CREATE DATABASE
 class Base(DeclarativeBase):
     pass
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI') or 'sqlite:///blog.db'
+
+# Detect if running in test mode (pytest sets PYTEST_CURRENT_TEST)
+# In test mode, ignore any PostgreSQL URI from .env and use SQLite default
+# so test fixtures can override it. In production/Docker, use environment variable.
+_is_test_mode = 'PYTEST_CURRENT_TEST' in os.environ or 'pytest' in sys.modules
+if _is_test_mode:
+    # In test mode, ignore .env PostgreSQL config and default to SQLite in-memory
+    # Test fixtures will override this with the appropriate test database
+    db_uri = os.environ.get('SQLALCHEMY_DATABASE_URI')
+    # If URI is set to PostgreSQL in test mode, ignore it and use SQLite default
+    if db_uri and db_uri.startswith('postgresql://'):
+        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+    else:
+        app.config['SQLALCHEMY_DATABASE_URI'] = db_uri or 'sqlite:///:memory:'
+else:
+    # In production, use environment variable or SQLite file default
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI') or 'sqlite:///blog.db'
 db = SQLAlchemy(model_class=Base)
 db.init_app(app)
 

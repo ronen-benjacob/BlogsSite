@@ -4,11 +4,11 @@ import sys
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash
 
-# Ensure predictable database configuration before importing the app
-USE_POSTGRES = os.environ.get('TEST_WITH_POSTGRES', 'false').lower() == 'true'
-if not USE_POSTGRES:
-    # Force the application to start with an in-memory SQLite database when testing locally
-    os.environ['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+# Prevent .env file from affecting test database configuration
+# Set a flag to indicate we're in test mode, then unset SQLALCHEMY_DATABASE_URI
+# so main.py will use SQLite default when imported
+os.environ['PYTEST_CURRENT_TEST'] = '1'  # Flag to indicate test mode
+_original_db_uri = os.environ.pop('SQLALCHEMY_DATABASE_URI', None)
 
 # Add parent directory to path so we can import main
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from main import app as flask_app, db, User, BlogPost, Comment
 
 # Choose database based on environment variable
+USE_POSTGRES = os.environ.get('TEST_WITH_POSTGRES', 'false').lower() == 'true'
 
 @pytest.fixture(scope='function')
 def app():
