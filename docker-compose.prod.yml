@@ -1,0 +1,54 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: flask_blog_db_prod
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-blog_db}
+      POSTGRES_USER: ${POSTGRES_USER:-blog_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-blog_password_123}
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - blog_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blog_user -d blog_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-yourusername}/flask-blog:latest
+    container_name: flask_blog_app_prod
+    restart: always
+    ports:
+      - "5003:5003"
+    environment:
+      FLASK_KEY: ${FLASK_KEY:-your-secret-key-change-this}
+      FLASK_ENV: production
+      SQLALCHEMY_DATABASE_URI: postgresql://${POSTGRES_USER:-blog_user}:${POSTGRES_PASSWORD:-blog_password_123}@db:5432/${POSTGRES_DB:-blog_db}
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    networks:
+      - blog_network
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5003/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  blog_network:
+    driver: bridge
+
+volumes:
+  postgres_data_prod:

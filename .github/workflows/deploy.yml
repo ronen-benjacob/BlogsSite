@@ -1,0 +1,87 @@
+name: Deploy to Local
+
+# Trigger on successful CI completion
+on:
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types: [completed]
+    branches: [main, master]
+
+jobs:
+  deploy:
+    name: Deploy to Local Windows Machine
+    runs-on: [self-hosted, Windows, local-deploy]
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create deployment directory
+        run: |
+          if (!(Test-Path "C:\deployments\flask-blog")) {
+            New-Item -Path "C:\deployments\flask-blog" -ItemType Directory -Force
+          }
+        shell: powershell
+
+      - name: Stop existing containers
+        run: |
+          cd C:\deployments\flask-blog
+          if (Test-Path "docker-compose.yml") {
+            docker-compose down
+          }
+        shell: powershell
+        continue-on-error: true
+
+      - name: Copy application files
+        run: |
+          Copy-Item -Path "${{ github.workspace }}\*" -Destination "C:\deployments\flask-blog\" -Recurse -Force
+        shell: powershell
+
+      - name: Pull latest Docker image
+        run: |
+          cd C:\deployments\flask-blog
+          docker-compose pull
+        shell: powershell
+        continue-on-error: true
+
+      - name: Start application
+        run: |
+          cd C:\deployments\flask-blog
+          docker-compose up -d
+        shell: powershell
+
+      - name: Wait for application to start
+        run: |
+          Start-Sleep -Seconds 10
+        shell: powershell
+
+      - name: Health check
+        run: |
+          $response = Invoke-WebRequest -Uri "http://localhost:5003" -TimeoutSec 30
+          if ($response.StatusCode -eq 200) {
+            Write-Host "✅ Application is healthy and running!"
+          } else {
+            Write-Host "❌ Health check failed"
+            exit 1
+          }
+        shell: powershell
+
+      - name: Deployment summary
+        run: |
+          Write-Host "========================================="
+          Write-Host "🚀 Deployment Successful!"
+          Write-Host "========================================="
+          Write-Host "Application URL: http://localhost:5003"
+          Write-Host "Deployment Path: C:\deployments\flask-blog"
+          Write-Host "Commit: ${{ github.sha }}"
+          Write-Host "Branch: ${{ github.ref_name }}"
+          Write-Host "========================================="
+        shell: powershell
+
+      - name: Send deployment notification
+        if: always()
+        run: |
+          $status = if ($?) { "SUCCESS ✅" } else { "FAILED ❌" }
+          Write-Host "Deployment Status: $status"
+        shell: powershell
