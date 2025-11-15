@@ -97,10 +97,6 @@ jobs:
         run: |
           cd C:\deployments\flask-blog
           Write-Host "Starting application with docker-compose..."
-
-          # Set Docker host to use TCP if named pipe fails
-          $env:DOCKER_HOST = "tcp://localhost:2375"
-
           docker-compose -f docker-compose.prod.yml up -d
           Write-Host "SUCCESS: Application started"
         shell: powershell
