@@ -134,6 +134,6 @@ This project is licensed under the MIT License.
 
 ## 👨‍💻 Author
 
-Ronen Ben Jacob - [GitHub Profile](https://github.com/ronen-benjacob) - 2025
+Ronen Ben Jacob - [GitHub Profile](https://github.com/ronen-benjacob)
 
 ---
