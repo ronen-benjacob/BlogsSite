@@ -1,6 +1,5 @@
 name: Deploy to Local
 
-# Trigger on successful CI completion
 on:
   workflow_run:
     workflows: ["CI Pipeline"]
@@ -21,67 +20,147 @@ jobs:
         run: |
           if (!(Test-Path "C:\deployments\flask-blog")) {
             New-Item -Path "C:\deployments\flask-blog" -ItemType Directory -Force
+            Write-Host "✅ Created deployment directory"
+          } else {
+            Write-Host "✅ Deployment directory already exists"
           }
         shell: powershell
 
       - name: Stop existing containers
         run: |
           cd C:\deployments\flask-blog
-          if (Test-Path "docker-compose.yml") {
-            docker-compose down
+          if (Test-Path "docker-compose.prod.yml") {
+            Write-Host "Stopping existing containers..."
+            docker-compose -f docker-compose.prod.yml down
+            Write-Host "✅ Containers stopped"
+          } else {
+            Write-Host "No existing deployment found"
           }
         shell: powershell
         continue-on-error: true
 
       - name: Copy application files
         run: |
-          Copy-Item -Path "${{ github.workspace }}\*" -Destination "C:\deployments\flask-blog\" -Recurse -Force
+          Write-Host "Copying application files..."
+          Copy-Item -Path "${{ github.workspace }}\*" -Destination "C:\deployments\flask-blog\" -Recurse -Force -Exclude @('.git', '.github', '.venv', '__pycache__', '*.pyc', 'htmlcov', '.coverage')
+          Write-Host "✅ Application files copied"
+        shell: powershell
+
+      - name: Create .env file from secrets
+        run: |
+          Write-Host "Creating .env file from GitHub Secrets..."
+          $envContent = @"
+          # Flask Configuration
+          FLASK_KEY=${{ secrets.FLASK_KEY }}
+          FLASK_ENV=production
+
+          # Database Configuration
+          POSTGRES_DB=blog_db_prod
+          POSTGRES_USER=blog_user_prod
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+
+          # SQLAlchemy Connection String
+          SQLALCHEMY_DATABASE_URI=postgresql://blog_user_prod:${{ secrets.POSTGRES_PASSWORD }}@db:5432/blog_db_prod
+
+          # GitHub Configuration
+          GITHUB_REPOSITORY_OWNER=${{ github.repository_owner }}
+          "@
+
+          $envContent | Out-File -FilePath "C:\deployments\flask-blog\.env" -Encoding UTF8 -Force
+          Write-Host "✅ .env file created successfully"
+          Write-Host "📍 Location: C:\deployments\flask-blog\.env"
         shell: powershell
 
       - name: Pull latest Docker image
         run: |
           cd C:\deployments\flask-blog
-          docker-compose pull
+          Write-Host "Pulling latest Docker image..."
+          docker pull ghcr.io/${{ github.repository_owner }}/flask-blog:latest
+          Write-Host "✅ Docker image pulled"
         shell: powershell
         continue-on-error: true
 
       - name: Start application
         run: |
           cd C:\deployments\flask-blog
-          docker-compose up -d
+          Write-Host "Starting application with docker-compose..."
+          docker-compose -f docker-compose.prod.yml up -d
+          Write-Host "✅ Application started"
         shell: powershell
 
       - name: Wait for application to start
         run: |
-          Start-Sleep -Seconds 10
+          Write-Host "Waiting for application to initialize..."
+          Start-Sleep -Seconds 20
+        shell: powershell
+
+      - name: Check container status
+        run: |
+          cd C:\deployments\flask-blog
+          Write-Host "Container Status:"
+          docker-compose -f docker-compose.prod.yml ps
         shell: powershell
 
       - name: Health check
         run: |
-          $response = Invoke-WebRequest -Uri "http://localhost:5003" -TimeoutSec 30
-          if ($response.StatusCode -eq 200) {
-            Write-Host "✅ Application is healthy and running!"
-          } else {
-            Write-Host "❌ Health check failed"
+          Write-Host "Performing health check..."
+          $maxRetries = 12
+          $retryCount = 0
+          $success = $false
+
+          while ($retryCount -lt $maxRetries -and -not $success) {
+            try {
+              $response = Invoke-WebRequest -Uri "http://localhost:5003/health" -TimeoutSec 5 -UseBasicParsing
+              $content = $response.Content | ConvertFrom-Json
+              
+              if ($response.StatusCode -eq 200 -and $content.status -eq "healthy") {
+                Write-Host "✅ Application is healthy!"
+                Write-Host "Health Status: $($content | ConvertTo-Json -Depth 3)"
+                $success = $true
+              }
+            } catch {
+              $retryCount++
+              Write-Host "Health check attempt $retryCount/$maxRetries failed. Retrying in 5 seconds..."
+              Start-Sleep -Seconds 5
+            }
+          }
+
+          if (-not $success) {
+            Write-Host "❌ Health check failed after $maxRetries attempts"
+            Write-Host "Checking application logs..."
+            cd C:\deployments\flask-blog
+            docker-compose -f docker-compose.prod.yml logs --tail=50 web
             exit 1
           }
         shell: powershell
 
       - name: Deployment summary
+        if: success()
         run: |
-          Write-Host "========================================="
-          Write-Host "🚀 Deployment Successful!"
-          Write-Host "========================================="
-          Write-Host "Application URL: http://localhost:5003"
-          Write-Host "Deployment Path: C:\deployments\flask-blog"
-          Write-Host "Commit: ${{ github.sha }}"
-          Write-Host "Branch: ${{ github.ref_name }}"
-          Write-Host "========================================="
+          Write-Host ""
+          Write-Host "=========================================" -ForegroundColor Green
+          Write-Host "🚀 Deployment Successful!" -ForegroundColor Green
+          Write-Host "=========================================" -ForegroundColor Green
+          Write-Host ""
+          Write-Host "📍 Application Details:"
+          Write-Host "   URL: http://localhost:5003"
+          Write-Host "   Health: http://localhost:5003/health"
+          Write-Host "   Metrics: http://localhost:5003/metrics"
+          Write-Host ""
+          Write-Host "📂 Deployment Info:"
+          Write-Host "   Path: C:\deployments\flask-blog"
+          Write-Host "   Commit: ${{ github.sha }}"
+          Write-Host "   Branch: ${{ github.ref_name }}"
+          Write-Host "   Image: ghcr.io/${{ github.repository_owner }}/flask-blog:latest"
+          Write-Host ""
+          Write-Host "=========================================" -ForegroundColor Green
         shell: powershell
 
-      - name: Send deployment notification
-        if: always()
+      - name: Show logs on failure
+        if: failure()
         run: |
-          $status = if ($?) { "SUCCESS ✅" } else { "FAILED ❌" }
-          Write-Host "Deployment Status: $status"
+          Write-Host "Deployment failed. Showing logs..."
+          cd C:\deployments\flask-blog
+          docker-compose -f docker-compose.prod.yml logs --tail=100
         shell: powershell
+        continue-on-error: true
