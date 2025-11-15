@@ -22,6 +22,10 @@ RUN pip install --no-cache-dir requests
 # Copy the entire application
 COPY . .
 
+# Copy and set up entrypoint script
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # Create a non-root user for security
 RUN useradd -m -u 1000 flaskuser && chown -R flaskuser:flaskuser /app
 USER flaskuser
@@ -33,5 +37,5 @@ EXPOSE 5003
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s \
   CMD python -c "import requests; requests.get('http://localhost:5003/', timeout=2)" || exit 1
 
-# Run the application with gunicorn (production server)
-CMD ["gunicorn", "--bind", "0.0.0.0:5003", "--workers", "2", "--timeout", "120", "main:app"]
+# Run the application with entrypoint script
+CMD ["/app/entrypoint.sh"]
