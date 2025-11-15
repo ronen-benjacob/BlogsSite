@@ -50,25 +50,25 @@ jobs:
         run: |
           Write-Host "Creating .env file from GitHub Secrets..."
           $envContent = @"
-          # Flask Configuration
-          FLASK_KEY=${{ secrets.FLASK_KEY }}
-          FLASK_ENV=production
+            # Flask Configuration
+            FLASK_KEY=${{ secrets.FLASK_KEY }}
+            FLASK_ENV=production
 
-          # Database Configuration
-          POSTGRES_DB=blog_db_prod
-          POSTGRES_USER=blog_user_prod
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+            # Database Configuration
+            POSTGRES_DB=blog_db_prod
+            POSTGRES_USER=blog_user_prod
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
 
-          # SQLAlchemy Connection String
-          SQLALCHEMY_DATABASE_URI=postgresql://blog_user_prod:${{ secrets.POSTGRES_PASSWORD }}@db:5432/blog_db_prod
+            # SQLAlchemy Connection String
+            SQLALCHEMY_DATABASE_URI=postgresql://blog_user_prod:${{ secrets.POSTGRES_PASSWORD }}@db:5432/blog_db_prod
 
-          # GitHub Configuration
-          GITHUB_REPOSITORY_OWNER=${{ github.repository_owner }}
+            # GitHub Configuration
+            GITHUB_REPOSITORY_OWNER=${{ github.repository_owner }}
           "@
 
           $envContent | Out-File -FilePath "C:\deployments\flask-blog\.env" -Encoding UTF8 -Force
-          Write-Host "✅ .env file created successfully"
-          Write-Host "📍 Location: C:\deployments\flask-blog\.env"
+          Write-Host "SUCCESS: .env file created successfully"
+          Write-Host "Location: C:\deployments\flask-blog\.env"
         shell: powershell
 
       - name: Pull latest Docker image
