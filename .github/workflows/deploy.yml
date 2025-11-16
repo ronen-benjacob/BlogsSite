@@ -114,39 +114,39 @@ jobs:
           docker-compose -f docker-compose.prod.yml ps
         shell: powershell
 
-      - name: Verify deployment
+      - name: Health check
         run: |
-          Write-Host "Verifying deployment..."
+          Write-Host "Performing health check..."
+          $maxRetries = 12
+          $retryCount = 0
+          $success = $false
 
-          # Just check if containers are running
-          cd C:\deployments\flask-blog
-          $containers = docker-compose -f docker-compose.prod.yml ps --format json | ConvertFrom-Json
-
-          $webRunning = $false
-          $dbRunning = $false
-
-          foreach ($container in $containers) {
-            if ($container.Service -eq "web" -and $container.State -eq "running") {
-              $webRunning = $true
-              Write-Host "SUCCESS: Web container is running"
-            }
-            if ($container.Service -eq "db" -and $container.State -eq "running") {
-              $dbRunning = $true
-              Write-Host "SUCCESS: Database container is running"
+          while ($retryCount -lt $maxRetries -and -not $success) {
+            try {
+              $response = Invoke-WebRequest -Uri "http://localhost:5003/health" -TimeoutSec 5 -UseBasicParsing
+              $content = $response.Content | ConvertFrom-Json
+              
+              if ($response.StatusCode -eq 200 -and $content.status -eq "healthy") {
+                Write-Host "SUCCESS: Application is healthy!"
+                Write-Host "Database: $($content.checks.database.status)"
+                Write-Host "Tables: $($content.checks.tables.status)"
+                $success = $true
+              }
+            } catch {
+              $retryCount++
+              Write-Host "Health check attempt $retryCount/$maxRetries failed. Retrying in 5 seconds..."
+              Start-Sleep -Seconds 5
             }
           }
 
-          if ($webRunning -and $dbRunning) {
-            Write-Host "SUCCESS: All containers are running!"
-          } else {
-            Write-Host "WARNING: Some containers may not be running"
-            docker-compose -f docker-compose.prod.yml ps
+          if (-not $success) {
+            Write-Host "ERROR: Health check failed after $maxRetries attempts"
+            Write-Host "Checking application logs..."
+            cd C:\deployments\flask-blog
+            docker-compose -f docker-compose.prod.yml logs --tail=50 web
+            exit 1
           }
-
-          Write-Host ""
-          Write-Host "Note: Health check endpoint will be added in Day 5"
         shell: powershell
-        continue-on-error: false
 
       - name: Deployment summary
         if: success()
