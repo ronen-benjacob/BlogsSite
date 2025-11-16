@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from flask import Flask, render_template, redirect, url_for, flash, abort
 from flask_bootstrap import Bootstrap5
 from flask_ckeditor import CKEditor
@@ -307,6 +307,86 @@ def about():
 @app.route("/contact")
 def contact():
     return render_template("contact.html")
+
+@app.route('/health')
+def health_check():
+    """
+    Comprehensive health check endpoint.
+    Returns 200 if healthy, 503 if unhealthy.
+    """    
+    
+    health_status = {
+        'status': 'healthy',
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'application': 'Flask Blog',
+        'version': '1.0.0',
+        'checks': {}
+    }
+    
+    # Check database connection
+    try:
+        from sqlalchemy import text
+        db.session.execute(text('SELECT 1'))
+        health_status['checks']['database'] = {
+            'status': 'healthy',
+            'message': 'Database connection successful'
+        }
+    except Exception as e:
+        health_status['status'] = 'unhealthy'
+        health_status['checks']['database'] = {
+            'status': 'unhealthy',
+            'message': f'Database connection failed: {str(e)}'
+        }
+    
+    # Check if tables exist
+    try:
+        BlogPost.query.first()
+        health_status['checks']['tables'] = {
+            'status': 'healthy',
+            'message': 'Database tables exist'
+        }
+    except Exception as e:
+        health_status['status'] = 'unhealthy'
+        health_status['checks']['tables'] = {
+            'status': 'unhealthy',
+            'message': f'Tables check failed: {str(e)}'
+        }
+    
+    # Return appropriate status code
+    status_code = 200 if health_status['status'] == 'healthy' else 503
+    return health_status, status_code
+
+
+@app.route('/metrics')
+def metrics():
+    """
+    Basic metrics endpoint.
+    Returns application metrics in JSON format.
+    """    
+    try:
+        import psutil        
+        
+        # Get system metrics
+        metrics_data = {
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'system': {
+                'cpu_percent': psutil.cpu_percent(interval=1),
+                'memory_percent': psutil.virtual_memory().percent,
+                'disk_percent': psutil.disk_usage('/').percent
+            },
+            'database': {
+                'total_posts': BlogPost.query.count(),
+                'total_users': User.query.count(),
+                'total_comments': Comment.query.count()
+            },
+            'application': {
+                'uptime_seconds': int((datetime.now() - datetime.fromtimestamp(psutil.Process(os.getpid()).create_time())).total_seconds()),
+                'environment': os.environ.get('FLASK_ENV', 'production')
+            }
+        }
+        return metrics_data, 200
+    except Exception as e:
+        return {'error': str(e)}, 500
 
 
 if __name__ == "__main__":

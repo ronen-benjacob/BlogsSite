@@ -32,3 +32,6 @@ faker==22.0.0
 flake8==7.0.0
 black==24.2.0
 coverage==7.4.1
+
+# Health check dependencies 
+psutil==5.9.8

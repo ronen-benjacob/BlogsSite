@@ -1,0 +1,22 @@
+# Create .gitattributes to enforce LF for shell scripts
+cat > .gitattributes << 'EOF'
+# Shell scripts must use LF (Unix line endings)
+*.sh text eol=lf
+entrypoint.sh text eol=lf
+
+# Python files use LF
+*.py text eol=lf
+
+# Windows-specific files use CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.gif binary
+EOF
+
+# Refresh Git's view of line endings
+git add --renormalize .
