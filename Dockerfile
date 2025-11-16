@@ -35,7 +35,7 @@ EXPOSE 5003
 
 # Health check to ensure app is running
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s \
-  CMD python -c "import requests; requests.get('http://localhost:5003/', timeout=2)" || exit 1
-
+  CMD python -c "import requests; requests.get('http://localhost:5003/health', timeout=2)" || exit 1
+  
 # Run the application with entrypoint script
 CMD ["/app/entrypoint.sh"]
