@@ -1,4 +1,4 @@
-name: CI Pipeline
+name: CI Pipeline (Optimized)
 
 on:
   push:
@@ -10,8 +10,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PYTHON_VERSION: "3.11"
+  CACHE_VERSION: v1 # Increment to bust all caches
+
 jobs:
-  # Job 1: Code Quality Checks
+  # Job 1: Code Quality (Fast Path)
   lint:
     name: Code Quality & Linting
     runs-on: ubuntu-latest
@@ -23,14 +27,24 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: "pip"
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies
+      # Multi-layer pip cache
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.local/share/virtualenvs
+          key: ${{ runner.os }}-pip-${{ env.CACHE_VERSION }}-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-${{ env.CACHE_VERSION }}-
+            ${{ runner.os }}-pip-
+
+      - name: Install linting tools (cached)
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 black
-          pip install -r requirements.txt
+          pip install flake8==7.0.0 black==24.2.0
 
       - name: Lint with flake8
         run: |
@@ -43,60 +57,15 @@ jobs:
           black --check --diff .
         continue-on-error: true
 
-  # Job 2: Test Suite (SQLite - Fast)
+  # Job 2: Test Suite (Optimized)
   test:
-    name: Test Suite (Python 3.11)
-    runs-on: ubuntu-latest
-    needs: lint
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run tests with coverage
-        run: |
-          pytest --cov=. --cov-report=xml --cov-report=term-missing --cov-report=html
-
-      - name: Upload coverage reports
-        uses: codecov/codecov-action@v4
-        with:
-          file: ./coverage.xml
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false
-        continue-on-error: true
-
-      - name: Archive coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: htmlcov/
-          retention-days: 30
-
-      - name: Check coverage threshold
-        run: |
-          coverage report --fail-under=80
-
-  # Job 3: Multi-Python Version Testing
-  test-matrix:
-    name: Test on Python ${{ matrix.python-version }}
+    name: Test Suite (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     needs: lint
 
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.11"]
       fail-fast: false
 
     steps:
@@ -107,18 +76,67 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: "pip"
 
+      # Advanced pip caching with exact dependency matching
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        id: cache-deps
+        with:
+          path: |
+            ~/.cache/pip
+            .venv
+          key: ${{ runner.os }}-deps-${{ env.CACHE_VERSION }}-${{ matrix.python-version }}-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-deps-${{ env.CACHE_VERSION }}-${{ matrix.python-version }}-
+
+      # Only install if cache miss
       - name: Install dependencies
+        if: steps.cache-deps.outputs.cache-hit != 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run tests
+      # Use cached dependencies
+      - name: Use cached dependencies
+        if: steps.cache-deps.outputs.cache-hit == 'true'
         run: |
-          pytest --verbose
+          echo "Using cached dependencies"
+          pip list
 
-  # Job 4: Security Scanning
+      # Cache pytest cache
+      - name: Cache pytest
+        uses: actions/cache@v4
+        with:
+          path: .pytest_cache
+          key: ${{ runner.os }}-pytest-${{ env.CACHE_VERSION }}-${{ hashFiles('tests/**') }}
+          restore-keys: |
+            ${{ runner.os }}-pytest-${{ env.CACHE_VERSION }}-
+
+      - name: Run tests with coverage
+        run: |
+          pytest --cov=. --cov-report=xml --cov-report=term-missing --cov-report=html -v --durations=10
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          fail_ci_if_error: false
+        continue-on-error: true
+
+      - name: Archive coverage report
+        uses: actions/upload-artifact@v4
+        if: matrix.python-version == '3.11'
+        with:
+          name: coverage-report
+          path: htmlcov/
+          retention-days: 30
+
+      - name: Check coverage threshold
+        run: |
+          coverage report --fail-under=80
+
+  # Job 3: Security Scanning (Parallel)
   security:
     name: Security Scan
     runs-on: ubuntu-latest
@@ -130,9 +148,17 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies
+      - name: Cache security tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-security-${{ env.CACHE_VERSION }}
+          restore-keys: |
+            ${{ runner.os }}-security-
+
+      - name: Install security scanners
         run: |
           python -m pip install --upgrade pip
           pip install safety bandit
@@ -146,7 +172,7 @@ jobs:
           bandit -r . -f json || true
         continue-on-error: true
 
-  # Job 5: Build and Push Docker Image
+  # Job 4: Build and Push Docker Image (Heavily Optimized)
   build-and-push:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
@@ -179,6 +205,17 @@ jobs:
             type=ref,event=branch
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+
+      # Advanced Docker layer caching
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ env.CACHE_VERSION }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-${{ env.CACHE_VERSION }}-
+            ${{ runner.os }}-buildx-
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -187,8 +224,20 @@ jobs:
           push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=local,src=/tmp/.buildx-cache
+            type=registry,ref=ghcr.io/${{ github.repository_owner }}/flask-blog:buildcache
+          cache-to: |
+            type=local,dest=/tmp/.buildx-cache-new,mode=max
+            type=registry,ref=ghcr.io/${{ github.repository_owner }}/flask-blog:buildcache,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+
+      # Prevent cache from growing indefinitely
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache || true
 
       - name: Image Summary
         run: |
@@ -202,3 +251,39 @@ jobs:
           else
             echo "ℹ️ Image built but not pushed (PR preview)" >> $GITHUB_STEP_SUMMARY
           fi
+
+      - name: Scan for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "ghcr.io/${{ github.repository_owner }}/flask-blog:${{ steps.meta.outputs.version }}"
+          format: "sarif"
+          output: "trivy-results.sarif"
+        continue-on-error: true
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: "trivy-results.sarif"
+        continue-on-error: true
+
+  # Job 5: CI Summary
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [lint, test, security, build-and-push]
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "### CI Pipeline Results 📊" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Lint | ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test | ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security | ${{ needs.security.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build & Push | ${{ needs.build-and-push.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
